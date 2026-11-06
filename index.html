@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Werewolf</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🐺 Werewolf</h1>
+  </header>
+
+  <main>
+    <section class="panel">
+      <form id="addForm">
+        <input id="nameInput" type="text" placeholder="Nama pemain" maxlength="30" required aria-label="Nama pemain">
+        <button type="submit">Tambah</button>
+      </form>
+      <div class="actions">
+        <button id="manualBtn">Manual</button>
+        <button id="randomBtn">Random Card</button>
+        <button id="matchBtn" class="match">Match Play</button>
+        <button id="rematchBtn" class="match">Rematch</button>
+        <button id="resetRolesBtn" class="secondary">Reset Role</button>
+        <button id="resetAllBtn" class="danger">Reset Semua</button>
+      </div>
+    </section>
+
+    <section class="panel" id="gamePanel" hidden></section>
+
+    <section class="panel">
+      <h2>Role Tersisa</h2>
+      <div class="sides">
+        <div class="remain good"><h3>Good Side</h3><ul id="goodRemain" class="plain"></ul></div>
+        <div class="remain bad"><h3>Bad Side</h3><ul id="badRemain" class="plain"></ul></div>
+        <div class="remain other"><h3>Other Side</h3><ul id="otherRemain" class="plain"></ul></div>
+      </div>
+    </section>
+
+    <section class="sides">
+      <div class="panel side good"><h2>Good Side <span id="goodCount" class="badge">0</span></h2><ul id="goodList" class="plain"></ul></div>
+      <div class="panel side bad"><h2>Bad Side <span id="badCount" class="badge">0</span></h2><ul id="badList" class="plain"></ul></div>
+      <div class="panel side other"><h2>Other Side <span id="otherCount" class="badge">0</span></h2><ul id="otherList" class="plain"></ul></div>
+    </section>
+    <section class="panel">
+      <h2>List Pemain <span id="playerCount" class="badge">0</span></h2>
+      <ul id="playerList" class="plain"></ul>
+    </section>
+  </main>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
