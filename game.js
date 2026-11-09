@@ -50,9 +50,15 @@ function buildSteps(round) {
     });
     // Dire Wolf (malam 1): pilih pemain yang akan mati bersamanya
     if (round === 1) A("Dire Wolf").forEach((p) => steps.push({ group: "bad", type: "pick", role: "Dire Wolf", actor: p.id, action: "dire", label: "Pilih" }));
-    // Alpha Wolf: sekali seumur game ubah satu warga jadi Werewolf
-    if (round >= 2 && !game.alphaUsed) A("Alpha Wolf").forEach((p) => steps.push({ group: "bad", type: "pick", role: "Alpha Wolf", actor: p.id, action: "alpha", label: "Ubah jadi Werewolf" }));
   }
+
+  // Alpha Wolf yang sudah mati: di malam berikutnya dia punya satu kesempatan mengubah satu warga jadi Werewolf.
+  // Langkah ini tetap muncul walau tidak ada Werewolf yang hidup, dan berlaku sekali per Alpha Wolf.
+  game.alphaDone = game.alphaDone || [];
+  players.filter((p) => p.role === "Alpha Wolf" && !alive(p) && !game.alphaDone.includes(p.id) && alphaTargets(p.id).length).forEach((p) => steps.push({
+    group: "bad", type: "pick", role: "Alpha Wolf", actor: p.id, action: "alpha", label: "Ubah jadi Werewolf",
+    note: "Alpha Wolf sudah mati: malam ini dia punya satu kesempatan mengubah satu pemain (selain komplotan Werewolf) menjadi Werewolf.",
+  }));
 
   // OTHER SIDE (mulai round 2)
   if (round >= 2) {
@@ -89,7 +95,7 @@ function buildSteps(round) {
 }
 
 function startRound(n) {
-  players.forEach((p) => { p.shielded = false; }); // shielded hanya bertahan 1 ronde
+  players.forEach((p) => { p.shielded = false; p.witchSaved = false; }); // shielded & saved (Witch) hanya bertahan 1 ronde
   game.prevShield = game.shieldPick || null;
   game.shieldPick = null;
   // muted dari Spellcaster hanya berlaku 1 hari; simpan untuk larangan memilih orang yang sama 2x berturut
@@ -114,13 +120,15 @@ function resolveNight(n, withWitch, withExtra = true) {
   const events = [];
   const dead = new Set();
   const badAlive = players.some((p) => alive(p) && isBad(p));
+  let witchSaved = null; // pemain yang diselamatkan Witch malam ini: kebal dari semua kematian lain juga
   const tryKill = (id, by, o = {}) => {
     const t = find(id);
     if (!t || !alive(t)) return;
     if (o.noGood && ROLES[t.role].side === "good") { events.push({ kind: "fail", text: `${t.name} gagal dibunuh ${by} karena Fruit Brute adalah Werewolf terakhir` }); return; }
     if (o.onlyWolf && badAlive && !isBad(t)) { events.push({ kind: "fail", text: `${t.name} gagal dibunuh ${by} karena bukan Werewolf` }); return; }
     if (t.protected) { events.push({ kind: "fail", text: `${t.name} tidak bisa dibunuh karena dilindungi Priest` }); return; }
-    if (t.shielded && !o.ignoreShield) { events.push({ kind: "fail", text: `${t.name} gagal dibunuh ${by} karena dilindungi Bodyguard` }); return; }
+    if (t.shielded) { events.push({ kind: "fail", text: `${t.name} gagal dibunuh ${by} karena dilindungi Bodyguard` }); return; }
+    if (t.witchSaved || witchSaved === t.id) { events.push({ kind: "fail", text: `${t.name} gagal dibunuh ${by} karena dilindungi Witch` }); return; }
     // Cursed diserang Werewolf: tidak mati, menjadi Werewolf malam berikutnya
     if (o.wolfTeam && t.role === "Cursed") {
       events.push({ kind: "convert", target: t.id, role: "Werewolf", text: `${t.name} (Cursed) diserang Werewolf dan menjadi Werewolf malam berikutnya` });
@@ -183,11 +191,11 @@ function resolveNight(n, withWitch, withExtra = true) {
       case "protect": events.push({ kind: "info", text: `${t.name} dilindungi Priest (protected)` }); break;
       case "dire": events.push({ kind: "info", text: `Dire Wolf (${nameOf(s.actor)}) memilih ${t.name}: keduanya mati bersama` }); break;
       case "alpha":
-        if (alive(t)) events.push({ kind: "convert", target: t.id, role: "Werewolf", alpha: true, text: `${t.name} diubah Alpha Wolf menjadi Werewolf` });
+        if (alive(t)) events.push({ kind: "convert", target: t.id, role: "Werewolf", alpha: true, by: s.actor, text: `${t.name} diubah menjadi Werewolf oleh ${nameOf(s.actor)} (Alpha Wolf yang sudah mati)` });
         break;
       case "reveal":
         if (isBad(t)) tryKill(t.id, "Revealer");
-        else tryKill(s.actor, "Revealer", { ignoreShield: true, text: `${nameOf(s.actor)} mati karena Revealer salah menebak (${t.name} bukan Werewolf)` });
+        else tryKill(s.actor, "Revealer", { text: `${nameOf(s.actor)} mati karena Revealer salah menebak (${t.name} bukan Werewolf)` });
         break;
       case "doppel": events.push({ kind: "info", text: `Doppelganger (${nameOf(s.actor)}) memilih ${t.name}` }); break;
       case "virginia": events.push({ kind: "info", text: `Virginia Wolf (${nameOf(s.actor)}) memilih ${t.name}` }); break;
@@ -196,7 +204,7 @@ function resolveNight(n, withWitch, withExtra = true) {
   // Bodyguard yang melindungi Werewolf akan mati
   bodyguardDeaths.forEach((id) => {
     const b = find(id);
-    if (b) tryKill(id, "Werewolf", { ignoreShield: true, text: `${b.name} killed karena melindungi Werewolf` });
+    if (b) tryKill(id, "Werewolf", { text: `${b.name} killed karena melindungi Werewolf` });
   });
 
   if (withWitch && n.witch) {
@@ -204,6 +212,7 @@ function resolveNight(n, withWitch, withExtra = true) {
     if (w.mode === "save") {
       events.forEach((e) => { if (e.kind === "death" && e.target === w.target) e.saved = true; });
       dead.delete(w.target);
+      witchSaved = w.target;
       events.push({ kind: "info", text: `Witch menyelamatkan ${nameOf(w.target)}` });
     } else if (w.mode === "kill") {
       tryKill(w.target, "Witch");
@@ -215,7 +224,7 @@ function resolveNight(n, withWitch, withExtra = true) {
     Object.keys(n.extra).forEach((aid) => {
       const a = find(aid);
       if (!a || !dead.has(aid)) return;
-      n.extra[aid].forEach((tid) => tryKill(tid, a.role, { ignoreShield: true, text: `${nameOf(tid)} ikut terbunuh karena ${a.role} (${a.name})` }));
+      n.extra[aid].forEach((tid) => tryKill(tid, a.role, { text: `${nameOf(tid)} ikut terbunuh karena ${a.role} (${a.name})` }));
     });
   }
   return { events, dead };
@@ -235,6 +244,13 @@ const evText = (e) => (e.saved ? `${e.text}, tetapi diselamatkan Witch` : e.text
 function cascade() {
   const out = [];
   if (!game) return out;
+  // Pemain protected (Priest) atau shielded (Bodyguard) selamat dari kematian berantai; hubungan itu dianggap selesai
+  const hit = (t, text, src) => {
+    const by = t.protected ? "Priest" : t.shielded ? "Bodyguard" : t.witchSaved ? "Witch" : null;
+    if (by) { out.push(`${t.name} selamat dari ${src} karena dilindungi ${by}`); return; }
+    t.killed = true;
+    out.push(text);
+  };
   let changed = true;
   while (changed) {
     changed = false;
@@ -242,21 +258,21 @@ function cascade() {
     if (L) {
       const [a, b] = [find(L[0]), find(L[1])];
       if (a && b) {
-        if (!alive(a) && alive(b)) { b.killed = true; out.push(`${b.name} ikut mati karena pasangan Cupid (${a.name}) mati`); changed = true; }
-        else if (!alive(b) && alive(a)) { a.killed = true; out.push(`${a.name} ikut mati karena pasangan Cupid (${b.name}) mati`); changed = true; }
+        if (!alive(a) && alive(b)) { hit(b, `${b.name} ikut mati karena pasangan Cupid (${a.name}) mati`, "pasangan Cupid"); game.links.lovers = null; changed = true; }
+        else if (!alive(b) && alive(a)) { hit(a, `${a.name} ikut mati karena pasangan Cupid (${b.name}) mati`, "pasangan Cupid"); game.links.lovers = null; changed = true; }
       }
     }
     const V = game.links.virginia;
     if (V) {
       const f = find(V.from), t = find(V.to);
-      if (f && t && !alive(f) && alive(t)) { t.killed = true; out.push(`${t.name} ikut mati karena Virginia Wolf (${f.name}) mati`); changed = true; }
+      if (f && t && !alive(f) && alive(t)) { hit(t, `${t.name} ikut mati karena Virginia Wolf (${f.name}) mati`, "Virginia Wolf"); game.links.virginia = null; changed = true; }
     }
     const DW = game.links.dire;
     if (DW) {
       const [a, b] = [find(DW.from), find(DW.to)];
       if (a && b) {
-        if (!alive(a) && alive(b)) { b.killed = true; out.push(`${b.name} ikut mati karena Dire Wolf (${a.name}) mati`); changed = true; }
-        else if (!alive(b) && alive(a)) { a.killed = true; out.push(`${a.name} ikut mati karena Dire Wolf (${b.name}) mati`); changed = true; }
+        if (!alive(a) && alive(b)) { hit(b, `${b.name} ikut mati karena Dire Wolf (${a.name}) mati`, "Dire Wolf"); game.links.dire = null; changed = true; }
+        else if (!alive(b) && alive(a)) { hit(a, `${a.name} ikut mati karena Dire Wolf (${b.name}) mati`, "Dire Wolf"); game.links.dire = null; changed = true; }
       }
     }
     const D = game.links.doppel;
@@ -293,7 +309,9 @@ function resolvePending(id, targets) {
   targets.forEach((tid) => {
     const t = find(tid);
     if (!t || !alive(t)) return;
-    if (t.protected) { lines.push(`${t.name} tidak bisa dibunuh karena dilindungi Priest`); return; }
+    if (t.protected) { lines.push(`${t.name} selamat dari ${a.role} (${a.name}) karena dilindungi Priest`); return; }
+    if (t.shielded) { lines.push(`${t.name} selamat dari ${a.role} (${a.name}) karena dilindungi Bodyguard`); return; }
+    if (t.witchSaved) { lines.push(`${t.name} selamat dari ${a.role} (${a.name}) karena dilindungi Witch`); return; }
     t.killed = true;
     lines.push(`${t.name} ikut terbunuh karena ${a.role} (${a.name})`);
   });
@@ -342,7 +360,7 @@ function commitNight() {
     const t = find(e.target);
     if (!t) return;
     if (e.kind === "status") { t[e.status] = true; if (e.status === "muted") game.mutePick = t.id; }
-    if (e.kind === "convert") { t.role = e.role; if (e.alpha) game.alphaUsed = true; }
+    if (e.kind === "convert") { t.role = e.role; if (e.alpha) { game.alphaDone = game.alphaDone || []; game.alphaDone.push(e.by); } }
   });
   r.dead.forEach((id) => { const t = find(id); if (t) t.killed = true; });
   // Drunk: Change Card berlaku sekarang (aktif mulai malam berikutnya)
@@ -353,12 +371,18 @@ function commitNight() {
     if (s.action === "shield" && a && a.targets[0] === s.actor) { game.bgSelf = game.bgSelf || {}; game.bgSelf[s.actor] = true; }
   });
   const w = game.night.witch;
-  if (w && w.mode === "save") game.witch.saveUsed = true;
+  if (w && w.mode === "save") {
+    game.witch.saveUsed = true;
+    const sv = find(w.target);
+    if (sv) sv.witchSaved = true; // dilindungi Witch sampai round berikutnya
+  }
   if (w && w.mode === "kill") game.witch.killUsed = true;
   // Mad Bomber / Hunter yang sudah memilih korban di ringkasan dianggap selesai
   Object.keys(game.night.extra || {}).forEach((aid) => { if (r.dead.has(aid)) game.handled.push(aid); });
   game.lastSummary = r.events.map(evText);
   game.lastSummary.push(...cascade());
+  game.history = game.history || {};
+  game.history[game.round] = { night: [...game.lastSummary] };
   collectPending();
   game.dayVoted = players.filter((p) => p.votedOut).map((p) => p.id); // dasar untuk cek "hari tanpa korban voting"
   game.phase = "day";
@@ -442,7 +466,7 @@ function stepHtml(s, idx) {
     if (s.actors) ex.push(...s.actors); // anggota tim tidak jadi target
     // Pemain yang sudah blobed / culted tidak muncul lagi sebagai pilihan
     if (s.action === "blobed" || s.action === "culted") ex.push(...players.filter((p) => p[s.action]).map((p) => p.id));
-    if (s.action === "alpha") ex.push(...players.filter((p) => ROLES[p.role].side !== "good").map((p) => p.id)); // hanya warga (Good Side)
+    if (s.action === "alpha") { const ok = alphaTargets(s.actor).map((p) => p.id); ex.push(...players.filter((p) => !ok.includes(p.id)).map((p) => p.id)); } // semua kecuali komplotan Werewolf
     if (s.action === "shield" && game.prevShield) ex.push(game.prevShield);
     if (s.action === "mute" && game.prevMute) ex.push(game.prevMute);
     ctl = `<select id="sel1" aria-label="Target">${playerOpts(ex, act && act.targets[0])}</select> <button id="actBtn">${s.label}</button>${chosen}`;
@@ -514,10 +538,65 @@ function bindStep(s, idx) {
 }
 
 // Lanjut ke malam berikutnya
+// ---------- Riwayat (History) ----------
+// game.history[round] = { night: [...ringkasan malam], notes: [...catatan], vote: "..." }
+const voteText = (pending) => {
+  if (!votingOpen()) return `Tidak ada voting (voting dimulai dari Round ${VOTING_FROM_ROUND})`;
+  const v = players.filter((p) => p.votedOut && !(game.dayVoted || []).includes(p.id));
+  return v.length ? `${v.map((p) => `${p.name} (${p.role})`).join(", ")} di-vote out` : pending ? "Belum ada voting" : "Seri / tidak ada yang di-vote out";
+};
+// Simpan catatan dan hasil voting siang sebelum pindah ke round berikutnya
+function archiveDay() {
+  game.history = game.history || {};
+  const h = (game.history[game.round] = game.history[game.round] || {});
+  h.notes = [...game.notes];
+  h.vote = voteText(false);
+}
+function historyText() {
+  const h = game.history || {};
+  const live = game.phase === "day" ? game.round : null; // round yang malamnya sudah selesai tapi siangnya belum
+  const rounds = new Set(Object.keys(h).map(Number));
+  if (live) rounds.add(live);
+  if (!rounds.size) return "";
+  const out = ["RIWAYAT WEREWOLF"];
+  [...rounds].sort((a, b) => a - b).forEach((r) => {
+    const e = h[r] || {};
+    const isLive = r === live && !e.vote;
+    const night = e.night || (isLive ? game.lastSummary : []) || [];
+    const notes = isLive ? game.notes : e.notes || [];
+    out.push("", `Round ${r}`, "Malam:");
+    out.push(...(night.length ? night : ["Tidak ada kejadian"]).map((l) => `- ${l}`));
+    if (notes.length) out.push("Catatan:", ...notes.map((l) => `- ${l}`));
+    out.push(`Siang: ${isLive ? voteText(true) : e.vote || "-"}`);
+  });
+  return out.join("\n");
+}
+async function copyText(text, ta) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (_) { /* fallback */ }
+  try { ta.focus(); ta.select(); return document.execCommand("copy"); } catch (_) { return false; }
+}
+function openHistory() {
+  const text = historyText();
+  if (!text) return alert("Belum ada riwayat. Selesaikan minimal satu malam (Terapkan & lanjut ke Siang).");
+  openModal(`<h3>History</h3>
+    <textarea id="histText" class="hist" readonly aria-label="Riwayat permainan">${esc(text)}</textarea>
+    <p id="histStatus" class="muted"></p>
+    <div class="modal-actions">
+      <button class="secondary" id="histClose">Tutup</button>
+      <button id="histCopy">Salin lagi</button>
+    </div>`);
+  const ta = $("histText");
+  const doCopy = async () => { $("histStatus").textContent = (await copyText(text, ta)) ? "✓ Tersalin ke clipboard." : "Gagal menyalin otomatis. Teks sudah terpilih, tekan Ctrl+C."; };
+  $("histClose").onclick = closeModal;
+  $("histCopy").onclick = doCopy;
+  doCopy();
+}
+
 function advanceRound() {
+  archiveDay();
   // Sasquatch: hari tanpa korban voting -> menjadi Bad Side (Werewolf)
   const msgs = [];
-  if (noVoteToday()) {
+  if (votingOpen() && noVoteToday()) {
     players.filter((p) => p.role === "Sasquatch" && alive(p)).forEach((p) => {
       p.role = "Werewolf";
       msgs.push(`${p.name} (Sasquatch) menjadi Werewolf karena hari tanpa korban voting`);
@@ -527,8 +606,11 @@ function advanceRound() {
   game.notes.push(...msgs);
   render();
 }
-// Hanya 1 pemain yang boleh di-vote out per hari
-const canVoteOut = () => !game || game.phase !== "day" || noVoteToday();
+// Voting dimulai dari round 2 (Round 1 tidak ada voting)
+const VOTING_FROM_ROUND = 2;
+const votingOpen = () => !game || game.round >= VOTING_FROM_ROUND;
+// Hanya 1 pemain yang boleh di-vote out per hari, dan hanya jika voting sudah dibuka
+const canVoteOut = () => !game || game.phase !== "day" || (votingOpen() && noVoteToday());
 
 // Hari ini tanpa korban voting = tidak ada pemain baru yang Voted out sejak awal siang
 const noVoteToday = () => !players.some((p) => p.votedOut && !(game.dayVoted || []).includes(p.id));
@@ -555,7 +637,8 @@ function checkWin() {
   if (bad > 0 && bad >= half) wins.push({ side: "bad", text: `Bad Side menang (${bad} dari ${total} pemain tersisa)` });
   if (vamp > 0 && vamp >= half) wins.push({ side: "other", text: `Vampire menang (${vamp} dari ${total} pemain tersisa)` });
   if (chupa > 0 && chupa >= half) wins.push({ side: "other", text: `Chupacabra menang (${chupa} dari ${total} pemain tersisa)` });
-  if (bad === 0 && vamp === 0 && chupa === 0) wins.push({ side: "good", text: "Good Side menang (semua Bad Side, Vampire, dan Chupacabra sudah mati)" });
+  // Alpha Wolf yang sudah mati tapi belum memakai kekuatannya: Good Side belum menang
+  if (bad === 0 && vamp === 0 && chupa === 0 && !alphaPending()) wins.push({ side: "good", text: "Good Side menang (semua Bad Side, Vampire, dan Chupacabra sudah mati)" });
 
   // Tanner: di-vote out
   players.filter((p) => p.role === "Tanner" && p.votedOut)
@@ -575,8 +658,29 @@ function checkWin() {
   });
   return wins;
 }
+// Target Alpha Wolf yang sudah mati: semua pemain hidup kecuali komplotan Werewolf (bisa Good Side atau Other Side).
+// Dream Wolf termasuk komplotan hanya jika sudah ada Werewolf lain yang mati sebelum Alpha Wolf ini;
+// jika Alpha Wolf ini Werewolf pertama yang mati, Dream Wolf belum bangun dan boleh dipilih.
+function alphaTargets(alphaId) {
+  const otherDeadWolf = players.some((p) => !alive(p) && WOLF_ROLES.includes(p.role) && p.id !== alphaId);
+  return players.filter((p) => {
+    if (!alive(p) || p.id === alphaId) return false;
+    if (WOLF_ROLES.includes(p.role)) return false;
+    if (p.role === "Dream Wolf") return !otherDeadWolf;
+    return true;
+  });
+}
+// Ada Alpha Wolf yang sudah mati tapi belum memakai kekuatannya (dan masih ada target yang bisa dipilih)
+function alphaPending() {
+  const done = (game && game.alphaDone) || [];
+  return players.some((p) => p.role === "Alpha Wolf" && !alive(p) && !done.includes(p.id) && alphaTargets(p.id).length > 0);
+}
 function winHtml() {
   const wins = checkWin();
+  const noEnemy = !players.some((p) => alive(p) && (isBad(p) || p.role === "Vampire" || p.role === "Chupacabra"));
+  if (!wins.length && noEnemy && alphaPending()) {
+    return `<div class="pending"><b>Alpha Wolf sudah mati, tetapi masih punya satu kesempatan mengubah satu warga menjadi Werewolf di malam berikutnya. Good Side belum menang.</b></div>`;
+  }
   return wins.length ? `<div class="win"><b>🏆 Pemenang</b><ul class="plain">${wins.map((w) => `<li class="${w.side}">${esc(w.text)}</li>`).join("")}</ul></div>` : "";
 }
 
@@ -633,19 +737,21 @@ function renderGame() {
       </div>`;
   } else {
     body = `<h3>Hasil malam Round ${game.round}</h3>${listHtml(game.lastSummary || [], "Tidak ada kejadian.")}
-      <h3>Diskusi &amp; Voting</h3>
-      ${noVoteToday()
+      <h3>${votingOpen() ? "Diskusi &amp; Voting" : "Siang"}</h3>
+      ${!votingOpen()
+        ? `<p class="muted">Tidak ada voting di Round ${game.round}. Voting dimulai dari Round ${VOTING_FROM_ROUND}.</p>`
+        : noVoteToday()
         ? `<p class="muted">Hanya 1 pemain yang bisa di-vote out. Jika suara seri, tidak ada yang di-vote out: langsung lanjut ke malam berikutnya.</p>
           <ul class="plain vote-list">${players.filter(alive).map((p) =>
             `<li class="mini"><span class="name">${esc(p.name)}</span><button class="small danger" data-vote="${p.id}">Voted out</button></li>`).join("")}</ul>
           ${sasquatchHint()}`
         : `<p class="muted">Voting selesai: ${esc(players.filter((p) => p.votedOut && !(game.dayVoted || []).includes(p.id)).map((p) => p.name).join(", "))} di-vote out.</p>`}
       ${game.notes.length ? `<h3>Catatan</h3>${listHtml(game.notes, "")}` : ""}
-      <div class="modal-actions"><button id="nextRoundBtn">${noVoteToday() ? "Seri / tanpa Voted out" : "Lanjut"} → Malam Round ${game.round + 1}</button></div>`;
+      <div class="modal-actions"><button id="nextRoundBtn">${votingOpen() && noVoteToday() ? "Seri / tanpa Voted out" : "Lanjut"} → Malam Round ${game.round + 1}</button></div>`;
   }
   const notesNight = game.phase !== "day" && game.notes.length ? `<h3>Catatan</h3>${listHtml(game.notes, "")}` : "";
   panel.innerHTML = `<div class="game-head"><h2>Match Play · Round ${game.round} <span class="badge">${phaseLabel}</span></h2>
-    <button class="small danger" id="endBtn">Akhiri Match</button></div>${winHtml()}${pendingHtml()}${body}${notesNight}`;
+    <span class="row"><button class="small secondary" id="histBtn">History</button><button class="small danger" id="endBtn">Akhiri Match</button></span></div>${winHtml()}${pendingHtml()}${body}${notesNight}`;
 
   panel.querySelectorAll("[data-pend-btn]").forEach((b) => {
     b.onclick = () => {
@@ -676,6 +782,7 @@ function renderGame() {
     };
   });
 
+  $("histBtn").onclick = openHistory;
   $("endBtn").onclick = () => { if (confirm("Akhiri match? Role & status pemain tidak diubah.")) { endGame(); render(); } };
   if (game.phase === "night") {
     bindStep(game.steps[game.step], game.step);
@@ -702,7 +809,7 @@ $("matchBtn").addEventListener("click", () => {
   if (players.some((p) => !p.role)) return alert("Semua pemain harus punya role (Manual / Random Card) sebelum Match Play.");
   game = { round: 1, phase: "night", step: 0, steps: [], night: { actions: {}, witch: null, extra: {} }, notes: [], lastSummary: [],
     handled: players.filter((p) => !alive(p)).map((p) => p.id), pending: [],
-    cubCounted: players.filter((p) => p.role === "Wolf cub" && !alive(p)).map((p) => p.id), cubExtra: 0, alphaUsed: false, troubleUsed: false, dayVoted: [], mutePick: null, prevMute: null,
+    cubCounted: players.filter((p) => p.role === "Wolf cub" && !alive(p)).map((p) => p.id), cubExtra: 0, alphaDone: [], troubleUsed: false, dayVoted: [], mutePick: null, prevMute: null,
     links: { lovers: null, virginia: null, doppel: null }, witch: { saveUsed: false, killUsed: false }, prevShield: null, shieldPick: null };
   startRound(1);
   render();

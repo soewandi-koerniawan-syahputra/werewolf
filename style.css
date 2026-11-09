@@ -109,3 +109,5 @@ ul.log li.convert { border-color: #8e44ad; }
 .vote-list { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-bottom: 8px; }
 .remain .who { display: block; color: #aab; font-size: .8rem; }
 .remain .pl { display: block; padding: 2px 0; }
+.tag.witchSaved { background: #27ae60; }
+.hist { width: 100%; min-height: 280px; background: #0f1118; color: inherit; border: 1px solid #3a3f58; border-radius: 6px; padding: 8px; font: .85rem/1.45 ui-monospace, Consolas, monospace; resize: vertical; }

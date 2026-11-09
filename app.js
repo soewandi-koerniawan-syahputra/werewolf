@@ -41,7 +41,7 @@ const ROLE_DESC = {
   "Count Dracula": "Kamu terlihat seperti warga biasa. Tiap malam pilih satu pemain untuk menjadi istrimu. Kamu menang jika kamu berhasil mempunyai 3 istri.",
   // Bad
   "Werewolf": "Tiap malam, bangun bersama Werewolf lain-nya dan bunuh semua warga desa.",
-  "Alpha Wolf": "Tiap malam, bangun bersama para Werewolf. Kamu memiliki kesempatan untuk merubah satu warga desa menjadi Werewolf.",
+  "Alpha Wolf": "Tiap malam, bangun bersama para Werewolf. Jika kamu mati, kamu merubah satu warga desa menjadi Werewolf.",
   "Dire Wolf": "Tiap malam, bangun bersama para Werewolf. Pada malam pertama pilih satu pemain lain, Kamu dan pemain tersebut akan mati jika salah satu diantara kalian mati.",
   "Fruit Brute": "Tiap malam, bangun bersama para Werewolf. Jika kamu Werewolf terakhir, kamu tidak bisa membunuh warga.",
   "Dream Wolf": "Kamu tidak bangun bersama para Werewolf. Kamu akan bangun bersama Werewolf, jika ada satu Werewolf yang mati.",
@@ -62,7 +62,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const find = (id) => players.find((p) => p.id === id);
 
-const resetStatus = (p) => { p.killed = p.votedOut = p.muted = p.protected = p.blobed = p.culted = p.charmed = p.shielded = false; };
+const resetStatus = (p) => { p.killed = p.votedOut = p.muted = p.protected = p.blobed = p.culted = p.charmed = p.shielded = p.witchSaved = false; };
 const alive = (p) => !p.killed && !p.votedOut;
 
 // ---------- Render ----------
@@ -87,6 +87,7 @@ function playerHtml(p, withRole) {
         ${p.culted ? '<span class="tag culted">Culted</span>' : ""}
         ${p.charmed ? '<span class="tag charmed">Charmed</span>' : ""}
         ${p.shielded ? '<span class="tag shielded">Shielded</span>' : ""}
+        ${p.witchSaved ? '<span class="tag witchSaved">Saved</span>' : ""}
       </span>
       <button class="small danger" data-act="remove" data-id="${p.id}" title="Hapus pemain">✕</button>
     </div>
@@ -119,7 +120,7 @@ function render() {
     list.filter(alive).forEach((p) => { (tally[p.role] = tally[p.role] || []).push(p); });
     // Nama pemain + semua tag status yang sedang aktif
     const STATUS = [["muted", "Muted"], ["protected", "Protected"], ["shielded", "Shielded"],
-      ["blobed", "Blobed"], ["culted", "Culted"], ["charmed", "Charmed"]];
+      ["witchSaved", "Saved"], ["blobed", "Blobed"], ["culted", "Culted"], ["charmed", "Charmed"]];
     const who = (p) => `<span class="pl">${esc(p.name)}` + STATUS.filter(([k]) => p[k])
       .map(([k, label]) => ` <span class="tag ${k}">${label}</span>`).join("") + "</span>";
     const names = ROLE_NAMES[side].filter((r) => tally[r]);
@@ -180,7 +181,7 @@ document.addEventListener("click", (e) => {
   const act = btn.dataset.act;
   if (act === "remove") { if (confirm(`Hapus ${p.name}?`)) { players = players.filter((x) => x !== p); render(); } }
   else if (act === "killed") { p.killed = !p.killed; if (p.killed) afterDeathToggle(); render(); }
-  else if (act === "votedOut") { if (!p.votedOut && typeof canVoteOut === "function" && !canVoteOut()) return alert("Hari ini sudah ada pemain yang di-vote out (maksimal 1)."); p.votedOut = !p.votedOut; if (p.votedOut) afterDeathToggle(); render(); }
+  else if (act === "votedOut") { if (!p.votedOut && typeof canVoteOut === "function" && !canVoteOut()) return alert("Voted out tidak bisa saat ini: Round 1 tidak ada voting, atau hari ini sudah ada pemain yang di-vote out (maksimal 1)."); p.votedOut = !p.votedOut; if (p.votedOut) afterDeathToggle(); render(); }
   else if (["muted", "protected", "blobed", "culted", "charmed", "shielded"].includes(act)) { p[act] = !p[act]; render(); }
   else if (act === "change") openChange(p);
   else if (act === "reveal") openReveal(p);
