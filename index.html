@@ -63,7 +63,17 @@
   <script src="game.js"></script>
   <script>
     // Daftarkan service worker agar bisa di-install (butuh HTTPS atau localhost)
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    if ("serviceWorker" in navigator) {
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloaded = false;
+      // Saat versi baru mengambil alih, muat ulang sekali agar langsung memakai file terbaru
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadController || reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+      navigator.serviceWorker.register("sw.js").then((reg) => reg.update()).catch(() => {});
+    }
   </script>
 </body>
 </html>
