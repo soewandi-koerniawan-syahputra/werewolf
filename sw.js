@@ -1,7 +1,7 @@
 "use strict";
 // Service worker sederhana: network-first agar update selalu terambil, cache sebagai cadangan offline.
 // Naikkan CACHE saat ada perubahan besar pada daftar file.
-const CACHE = "werewolf-v1";
+const CACHE = "werewolf-v2";
 const FILES = [
   "./", "./index.html", "./style.css", "./app.js", "./game.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/apple-touch-icon.png",
@@ -21,7 +21,8 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // no-cache: selalu validasi ke server, supaya cache HTTP GitHub Pages (10 menit) tidak menahan versi lama
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
